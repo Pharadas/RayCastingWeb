@@ -1,6 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
   <body>
+    <base href=".">
+    <head>
+      <link type="text/css" href="./style.css">
+    </head>
     <div id="container"></div>
     <div id="camera-vectors">
       <span>Free Camera Vectors:</span><br>
@@ -8,7 +12,7 @@
       <span id="lookingAt"></span>
     </div>
 
-    <script src="./vertexShader.vert" id="vertexShader" type="x-shader/x-vertex">
+    <script id="vertexShader" type="x-shader/x-vertex">
 
 precision mediump float;
 
@@ -697,6 +701,6 @@ void main() {
   FragColor = vec4(color.xyz, 1.0);
 }
     </script>
-		<script type="module" src="/main.js"></script>
+		<script type="module" src="./main.js"></script>
 	</body>
 </html>
