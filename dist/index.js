@@ -1,6 +1,5 @@
 import * as THREE from 'https://unpkg.com/three@0.127.0/build/three.module.js';
 import { FlyControls } from 'https://unpkg.com/three@0.127.0/examples/jsm/controls/FlyControls.js';
-import './style.css';
 
 var container;
 var camera, scene, renderer, clock, controls;
