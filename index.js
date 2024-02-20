@@ -23,9 +23,26 @@ var travel_distance_box  = document.getElementById('travel_distance_box');
 var waist_radius = document.getElementById('waist_radius');
 var wavelength = document.getElementById('wavelength');
 
+var jones_matrices_quick_select = document.getElementById('jones_matrices_quick_select');
+var light_polarization_quick_select = document.getElementById('quick_light_polarization');
+
+var pol_coeff = document.getElementById('pol_coefficient')
+
 var X = document.getElementById("x");
 var Y = document.getElementById("y");
 var Z = document.getElementById("z");
+
+var ar = document.getElementById("ar");
+var ai = document.getElementById("ai");
+var br = document.getElementById("br");
+var bi = document.getElementById("bi");
+var cr = document.getElementById("cr");
+var ci = document.getElementById("ci");
+var dr = document.getElementById("dr");
+var di = document.getElementById("di");
+
+var coeff_r = document.getElementById("coeff_r");
+var coeff_i = document.getElementById("coeff_i");
 
 var PX1 = document.getElementById("PX1");
 var PX2 = document.getElementById("PX2");
@@ -45,8 +62,16 @@ let blocks = {};
 // var vertexShader = await fetch("http://localhost:5173/main.vert").then(response => response.text());
 // var fragmentShader = await fetch("http://localhost:5173/main.frag").then(response => response.text());
 
+function replaceForMath(s) {
+  var changed_value = s.replace(/cos/g, "Math.cos");
+  changed_value = changed_value.replace(/sin/g, "Math.sin");
+  changed_value = changed_value.replace(/sqrt/g, "Math.sqrt");
+  changed_value = changed_value.replace(/pi/g, "Math.PI");
+
+  return changed_value
+}
+
 function onBlockTypeChange(e, v) {
-  console.log(e)
   var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
   var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
 
@@ -59,8 +84,10 @@ function onBlockTypeChange(e, v) {
       pos_to_string,
       {
         // color: new THREE.Vector3(parseInt(R.value), parseInt(G.value), parseInt(B.value)),
-        polX: new THREE.Vector2(parseFloat(PX1.value), parseFloat(PX2.value)),
-        polY: new THREE.Vector2(parseFloat(PY1.value), parseFloat(PY2.value)),
+        polX: new THREE.Vector2("1", "1"),
+        polY: new THREE.Vector2("1", "1"),
+        coefficient: "1",
+        chosen_quick_polarization: 0,
         look_at_position: new THREE.Vector3(),
         light_should_follow: false,
         fixed_travel_distance: false,
@@ -75,7 +102,17 @@ function onBlockTypeChange(e, v) {
 
   } else if (select_object_type_at_position_element.selectedIndex === OPTICAL_ELEMENT) {
     lights.delete(pos_to_string);
-    optical_elements.set(pos_to_string, select_object_type_at_position_element.selectedIndex);
+    optical_elements.set(pos_to_string, {
+      pos: new THREE.Vector3(parseInt(current_truncated_position.x), parseInt(current_truncated_position.y), parseInt(current_truncated_position.z)),
+      // yes, making these all into string is stupid but i
+      // cant ensure they won't explode at parseFloat otherwise
+      a: new THREE.Vector2("0", "0"),
+      b: new THREE.Vector2("0", "0"),
+      c: new THREE.Vector2("0", "0"),
+      d: new THREE.Vector2("0", "0"),
+      coefficient: new THREE.Vector2("1", "0"),
+      chosen_quick_jones_matrix: 0
+    });
   }
 }
 
@@ -120,7 +157,323 @@ function onShouldFollowCameraChange(e, v) {
 select_object_type_at_position_element.addEventListener("change", onBlockTypeChange);
 should_follow_camera_element.addEventListener("change", onShouldFollowCameraChange);
 
-// Terrible stuff that should never be repeated
+const HORIZONTAL_LINEAR_POL = 1;
+const VERTICAL_LINEAR_POL = 2;
+const POS_45_POL = 3;
+const NEG_45_POL = 4;
+const RIGHT_CIRC_POL = 5;
+const LEFT_CIRC_POL = 6;
+const THETA_ANGLE_LINEAR_POL = 7;
+const QWP_VERT = 8;
+const QWP_HOR = 9;
+const QWP_PI = 10;
+const HWP_ROT_PI = 11;
+const HWP_HOR = 12;
+const PHASE_ROT = 13;
+
+light_polarization_quick_select.addEventListener("change", (e, v) => {
+  var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
+  var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
+  var current_value = lights.get(pos_to_string);
+  current_value.chosen_quick_polarization = light_polarization_quick_select.selectedIndex;
+
+  console.log(light_polarization_quick_select.selectedIndex);
+
+  if (light_polarization_quick_select.selectedIndex != NONE) {
+    // we want the html tag to update properly
+    lastPosEntered = "";
+
+  }
+
+  if (light_polarization_quick_select.selectedIndex == HORIZONTAL_LINEAR_POL) {
+    current_value.coefficient = "1";
+    current_value.polX = new THREE.Vector2("1", "0");
+    current_value.polY = new THREE.Vector2("0", "0");
+
+  } else if (light_polarization_quick_select.selectedIndex == VERTICAL_LINEAR_POL) {
+    current_value.coefficient = "1";
+    current_value.polX = new THREE.Vector2("0", "0");
+    current_value.polY = new THREE.Vector2("1", "0");
+
+  } else if (light_polarization_quick_select.selectedIndex == POS_45_POL) {
+    current_value.coefficient = "1";
+    current_value.polX = new THREE.Vector2("1/sqrt(2)", "0");
+    current_value.polY = new THREE.Vector2("1/sqrt(2)", "0");
+
+  } else if (light_polarization_quick_select.selectedIndex == NEG_45_POL) {
+    current_value.coefficient = "1";
+    current_value.polX = new THREE.Vector2("1/sqrt(2)", "0");
+    current_value.polY = new THREE.Vector2("-1/sqrt(2)", "0");
+
+  } else if (light_polarization_quick_select.selectedIndex == RIGHT_CIRC_POL) {
+    current_value.coefficient = "1";
+    current_value.polX = new THREE.Vector2("1/sqrt(2)", "0");
+    current_value.polY = new THREE.Vector2("1/sqrt(2)", "-1");
+
+  } else if (light_polarization_quick_select.selectedIndex == LEFT_CIRC_POL) {
+    current_value.coefficient = "1";
+    current_value.polX = new THREE.Vector2("1/sqrt(2)", "0");
+    current_value.polY = new THREE.Vector2("1/sqrt(2)", "1");
+  }
+
+  lights.set(
+    pos_to_string,
+    current_value
+  )
+})
+
+jones_matrices_quick_select.addEventListener("change", (e, v) => {
+  var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
+  var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
+  var current_value = optical_elements.get(pos_to_string);
+  current_value.chosen_quick_jones_matrix = jones_matrices_quick_select.selectedIndex;
+
+  console.log(jones_matrices_quick_select.selectedIndex);
+
+  if (jones_matrices_quick_select.selectedIndex != NONE) {
+    // we want the html tag to update properly
+    lastPosEntered = "";
+  }
+
+  if (jones_matrices_quick_select.selectedIndex == HORIZONTAL_LINEAR_POL) {
+    current_value.coefficient = new THREE.Vector2("1", "0");
+    current_value.a = new THREE.Vector2("1", "0");
+    current_value.b = new THREE.Vector2("0", "0");
+    current_value.c = new THREE.Vector2("0", "0");
+    current_value.d = new THREE.Vector2("0", "0");
+
+  } else if (jones_matrices_quick_select.selectedIndex == VERTICAL_LINEAR_POL) {
+    current_value.coefficient = new THREE.Vector2("1", "0");
+    current_value.a = new THREE.Vector2("0", "0");
+    current_value.b = new THREE.Vector2("0", "0");
+    current_value.c = new THREE.Vector2("0", "0");
+    current_value.d = new THREE.Vector2("1", "0");
+
+  } else if (jones_matrices_quick_select.selectedIndex == POS_45_POL) {
+    current_value.coefficient = new THREE.Vector2("0.5", "0");
+    current_value.a = new THREE.Vector2("1", "0");
+    current_value.b = new THREE.Vector2("1", "0");
+    current_value.c = new THREE.Vector2("1", "0");
+    current_value.d = new THREE.Vector2("1", "0");
+
+  } else if (jones_matrices_quick_select.selectedIndex == NEG_45_POL) {
+    current_value.coefficient = new THREE.Vector2("0.5", "0");
+    current_value.a = new THREE.Vector2("1", "0");
+    current_value.b = new THREE.Vector2("-1", "0");
+    current_value.c = new THREE.Vector2("-1", "0");
+    current_value.d = new THREE.Vector2("1", "0");
+
+  } else if (jones_matrices_quick_select.selectedIndex == RIGHT_CIRC_POL) {
+    current_value.coefficient = new THREE.Vector2("0.5", "0");
+    current_value.a = new THREE.Vector2("1", "0");
+    current_value.b = new THREE.Vector2("0", "1");
+    current_value.c = new THREE.Vector2("0", "-1");
+    current_value.d = new THREE.Vector2("1", "0");
+
+  } else if (jones_matrices_quick_select.selectedIndex == LEFT_CIRC_POL) {
+    current_value.coefficient = new THREE.Vector2("0.5", "0");
+    current_value.a = new THREE.Vector2("1", "0");
+    current_value.b = new THREE.Vector2("0", "-1");
+    current_value.c = new THREE.Vector2("0", "1");
+    current_value.d = new THREE.Vector2("1", "0");
+
+  } else if (jones_matrices_quick_select.selectedIndex == THETA_ANGLE_LINEAR_POL) {
+    current_value.coefficient = new THREE.Vector2("1", "0");
+    current_value.a = new THREE.Vector2("cos(pi) ** 2", "0");
+    current_value.b = new THREE.Vector2("cos(pi) * sin(pi)", "0");
+    current_value.c = new THREE.Vector2("sin(pi) * cos(pi)", "0");
+    current_value.d = new THREE.Vector2("sin(pi) ** 2", "0");
+
+  } else if (jones_matrices_quick_select.selectedIndex == QWP_VERT) {
+    current_value.coefficient = new THREE.Vector2("1", "pi/4");
+    current_value.a = new THREE.Vector2("1", "0");
+    current_value.b = new THREE.Vector2("0", "0");
+    current_value.c = new THREE.Vector2("0", "0");
+    current_value.d = new THREE.Vector2("0", "1");
+
+  } else if (jones_matrices_quick_select.selectedIndex == QWP_HOR) {
+    current_value.coefficient = new THREE.Vector2("1", "-pi/4");
+    current_value.a = new THREE.Vector2("1", "0");
+    current_value.b = new THREE.Vector2("0", "0");
+    current_value.c = new THREE.Vector2("0", "0");
+    current_value.d = new THREE.Vector2("0", "1");
+
+  } else if (jones_matrices_quick_select.selectedIndex == QWP_PI) {
+    current_value.coefficient = new THREE.Vector2("1", "-pi/4");
+    current_value.a = new THREE.Vector2("cos(pi) ** 2", "sin(pi) ** 2");
+    current_value.b = new THREE.Vector2("sin(pi) * cos(pi)", "-sin(pi)*cos(pi)");
+    current_value.c = new THREE.Vector2("sin(pi) * cos(pi)", "-sin(pi)*cos(pi)");
+    current_value.d = new THREE.Vector2("sin(pi) ** 2", "cos(pi) ** 2");
+
+  } else if (jones_matrices_quick_select.selectedIndex == HWP_ROT_PI) {
+    current_value.coefficient = new THREE.Vector2("1", "0");
+    current_value.a = new THREE.Vector2("cos(2 * pi)", "0");
+    current_value.b = new THREE.Vector2("sin(2 * pi)", "0");
+    current_value.c = new THREE.Vector2("sin(2 * pi)", "0");
+    current_value.d = new THREE.Vector2("-cos(2 * pi)", "0");
+
+  } else if (jones_matrices_quick_select.selectedIndex == HWP_HOR) {
+    current_value.coefficient = new THREE.Vector2("1", "-pi/2");
+    current_value.a = new THREE.Vector2("cos(pi)**2 - sin(pi) ** 2", "0");
+    current_value.b = new THREE.Vector2("2 * cos(pi) * sin(pi)", "0");
+    current_value.c = new THREE.Vector2("2 * cos(pi) * sin(pi)", "0");
+    current_value.d = new THREE.Vector2("sin(pi) ** 2 - cos(pi) ** 2", "0");
+
+  } else if (jones_matrices_quick_select.selectedIndex == PHASE_ROT) {
+    current_value.coefficient = new THREE.Vector2("1", "0");
+    current_value.a = new THREE.Vector2("cos(pi)", "0");
+    current_value.b = new THREE.Vector2("sin(pi)", "0");
+    current_value.c = new THREE.Vector2("-sin(pi)", "0");
+    current_value.d = new THREE.Vector2("cos(pi)", "0");
+  }
+
+  optical_elements.set(
+    pos_to_string,
+    current_value
+  )
+})
+
+// Terrible stuff that should never be repeated (setting up all the listeners individually) BEGIN
+coeff_r.addEventListener("change", (e) => {
+  var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
+  var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
+
+  var current_value = optical_elements.get(pos_to_string);
+  current_value.coefficient.y = e.target.value;
+
+  optical_elements.set(
+    pos_to_string,
+    current_value
+  );
+});
+
+coeff_i.addEventListener("change", (e) => {
+  var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
+  var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
+
+  var current_value = optical_elements.get(pos_to_string);
+  current_value.coefficient.y = e.target.value;
+
+  optical_elements.set(
+    pos_to_string,
+    current_value
+  );
+});
+
+ar.addEventListener("change", (e) => {
+  var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
+  var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
+
+  var current_value = optical_elements.get(pos_to_string);
+
+  current_value.a.x = e.target.value;
+
+  console.log(current_value);
+
+  optical_elements.set(
+    pos_to_string,
+    current_value
+  );
+});
+
+ai.addEventListener("change", (e) => {
+  var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
+  var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
+
+  var current_value = optical_elements.get(pos_to_string);
+
+  current_value.a.y = e.target.value;
+
+  optical_elements.set(
+    pos_to_string,
+    current_value
+  );
+});
+
+br.addEventListener("change", (e) => {
+  var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
+  var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
+
+  var current_value = optical_elements.get(pos_to_string);
+
+  current_value.b.x = e.target.value;
+
+  optical_elements.set(
+    pos_to_string,
+    current_value
+  );
+});
+
+bi.addEventListener("change", (e) => {
+  var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
+  var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
+
+  var current_value = optical_elements.get(pos_to_string);
+
+  current_value.b.y = e.target.value;
+
+  optical_elements.set(
+    pos_to_string,
+    current_value
+  );
+});
+
+cr.addEventListener("change", (e) => {
+  var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
+  var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
+
+  var current_value = optical_elements.get(pos_to_string);
+
+  current_value.c.x = e.target.value;
+
+  optical_elements.set(
+    pos_to_string,
+    current_value
+  );
+});
+
+ci.addEventListener("change", (e) => {
+  var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
+  var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
+
+  var current_value = optical_elements.get(pos_to_string);
+
+  current_value.c.y = e.target.value;
+
+  optical_elements.set(
+    pos_to_string,
+    current_value
+  );
+});
+
+dr.addEventListener("change", (e) => {
+  var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
+  var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
+
+  var current_value = optical_elements.get(pos_to_string);
+
+  current_value.d.x = e.target.value;
+
+  optical_elements.set(
+    pos_to_string,
+    current_value
+  );
+});
+
+di.addEventListener("change", (e) => {
+  var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
+  var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
+
+  var current_value = optical_elements.get(pos_to_string);
+
+  current_value.d.y = e.target.value;
+
+  optical_elements.set(
+    pos_to_string,
+    current_value
+  );
+});
+
 travel_distance_num.addEventListener("change", (e) => {
   var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
   var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
@@ -229,12 +582,28 @@ Z.addEventListener("change", (e) => {
   );
 });
 
+pol_coeff.addEventListener("change", (e) => {
+  var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
+  var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
+
+  var current_value = lights.get(pos_to_string);
+  current_value.coefficient = e.target.value;
+
+  console.log(current_value);
+
+  lights.set(
+    pos_to_string,
+    current_value
+  );
+});
+
+
 PX1.addEventListener("change", (e) => {
   var current_truncated_position = new THREE.Vector3(Math.floor(fakePosition.x), Math.floor(fakePosition.y), Math.floor(fakePosition.z));
   var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
 
   var current_value = lights.get(pos_to_string);
-  current_value.polX.x = parseFloat(e.target.value);
+  current_value.polX.x = e.target.value;
 
   console.log(current_value);
 
@@ -249,7 +618,7 @@ PX2.addEventListener("change", (e, v) => {
   var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
 
   var current_value = lights.get(pos_to_string);
-  current_value.polX.y = parseFloat(PX2.value);
+  current_value.polX.y = PX2.value;
 
   console.log(current_value);
 
@@ -264,7 +633,7 @@ PY1.addEventListener("change", (e, v) => {
   var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
 
   var current_value = lights.get(pos_to_string);
-  current_value.polY.x = parseFloat(PY1.value);
+  current_value.polY.x = PY1.value;
 
   console.log(current_value);
 
@@ -279,7 +648,7 @@ PY2.addEventListener("change", (e, v) => {
   var pos_to_string = current_truncated_position.x.toString() + current_truncated_position.y.toString() + current_truncated_position.z.toString();
 
   var current_value = lights.get(pos_to_string);
-  current_value.polY.y = parseFloat(PY2.value);
+  current_value.polY.y = PY2.value;
 
   console.log(current_value);
 
@@ -389,6 +758,18 @@ async function init() {
       value: Array(10).fill(false)
     },
 
+    optical_objects_positions: {
+      value: Array(20).fill(new THREE.Vector3())
+    },
+
+    jones_matrices_a: {value: Array(20).fill(new THREE.Vector2())},
+    jones_matrices_b: {value: Array(20).fill(new THREE.Vector2())},
+    jones_matrices_c: {value: Array(20).fill(new THREE.Vector2())},
+    jones_matrices_d: {value: Array(20).fill(new THREE.Vector2())},
+
+    complex_coefficients: {
+      value: Array(20).fill(new THREE.Vector2())
+    }
   };
 
   // console.log(uniforms.light_positions);
@@ -458,6 +839,8 @@ function animate() {
       PY1.value = current_value.polY.x;
       PY2.value = current_value.polY.y;
 
+      pol_coeff.value = current_value.coefficient;
+
       X.value = current_value.look_at_position.x;
       Y.value = current_value.look_at_position.y;
       Z.value = current_value.look_at_position.z;
@@ -490,6 +873,25 @@ function animate() {
     optical_elements.delete(pos_to_string)
 
   } else if (optical_elements.has(pos_to_string)) {
+    var current_value = optical_elements.get(pos_to_string);
+    if (pos_to_string != lastPosEntered) {
+      ar.value = current_value.a.x;
+      ai.value = current_value.a.y;
+      br.value = current_value.b.x;
+      bi.value = current_value.b.y;
+      cr.value = current_value.c.x;
+      ci.value = current_value.c.y;
+      dr.value = current_value.d.x;
+      di.value = current_value.d.y;
+
+      coeff_r.value = current_value.coefficient.x;
+      coeff_i.value = current_value.coefficient.y;
+
+      lastPosEntered = pos_to_string;
+
+      jones_matrices_quick_select.selectedIndex = current_value.chosen_quick_jones_matrix;
+    }
+
     select_object_type_at_position_element.selectedIndex = OPTICAL_ELEMENT;
     should_show_light_info.style.display = "none"
     should_show_optical_element_info.style.display = "block"
@@ -507,6 +909,7 @@ function animate() {
 
   // console.log(lights.size);
   uniforms.number_of_lights.value = lights.size;
+  uniforms.number_of_optical_objects.value = optical_elements.size;
   // console.log(uniforms.number_of_lights.value);
   var pol_thing = [];
 
@@ -515,14 +918,45 @@ function animate() {
   for (let [key, value] of lights.entries()) {
     // console.log(value.pos)
     uniforms.light_positions.value[i] = new THREE.Vector3(value.pos.x + 0.5, value.pos.y + 0.5, value.pos.z + 0.5);
-    uniforms.light_polarizationsX.value[i] = value.polX;
-    uniforms.light_polarizationsY.value[i] = value.polY;
+
+    var px = new THREE.Vector2(parseFloat(eval(replaceForMath(value.polX.x))), parseFloat(eval(replaceForMath(value.polX.y))));
+    var py = new THREE.Vector2(parseFloat(eval(replaceForMath(value.polY.x))), parseFloat(eval(replaceForMath(value.polY.y))));
+
+    var coeff_num = parseFloat(eval(replaceForMath(value.coefficient)));
+
+    uniforms.light_polarizationsX.value[i] = px;
+    uniforms.light_polarizationsY.value[i] = py;
+
     uniforms.light_should_follow.value[i] = value.light_should_follow;
     uniforms.light_look_at_position.value[i] = value.look_at_position;
     uniforms.travels_fixed_distance.value[i] = value.fixed_travel_distance;
     uniforms.travel_distance.value[i] = value.travel_distance;
     uniforms.light_waist_radius.value[i] = value.waist_radius;
     uniforms.light_wavelength.value[i] = value.wavelength;
+
+    i += 1;
+  }
+
+  // update the uniforms with the current values of the optical objects
+  var i = 0;
+  for (let [key, value] of optical_elements.entries()) {
+    uniforms.optical_objects_positions.value[i] = new THREE.Vector3(value.pos.x + 0.5, value.pos.y + 0.5, value.pos.z + 0.5);
+
+    uniforms.jones_matrices_a.value[i].x = parseFloat(eval(replaceForMath(value.a.x)));
+    uniforms.jones_matrices_a.value[i].y = parseFloat(eval(replaceForMath(value.a.y)));
+
+    uniforms.jones_matrices_b.value[i].x = parseFloat(eval(replaceForMath(value.b.x)));
+    uniforms.jones_matrices_b.value[i].y = parseFloat(eval(replaceForMath(value.b.y)));
+
+    uniforms.jones_matrices_c.value[i].x = parseFloat(eval(replaceForMath(value.c.x)));
+    uniforms.jones_matrices_c.value[i].y = parseFloat(eval(replaceForMath(value.c.y)));
+
+    uniforms.jones_matrices_d.value[i].x = parseFloat(eval(replaceForMath(value.d.x)));
+    uniforms.jones_matrices_d.value[i].y = parseFloat(eval(replaceForMath(value.d.y)));
+
+    uniforms.complex_coefficients.value[i].x = parseFloat(eval(replaceForMath(value.coefficient.x)));
+    uniforms.complex_coefficients.value[i].y = parseFloat(eval(replaceForMath(value.coefficient.y)));
+
     i += 1;
   }
 

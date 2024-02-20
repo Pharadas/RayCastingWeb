@@ -26,6 +26,7 @@ uniform vec3 position;
 uniform vec2 rotation;
 
 uniform int number_of_lights;
+uniform int number_of_optical_objects;
 
 // Terrible way of doing this but i cant pass an array of structs which
 // contain other structs for some reason and im too tired to look into it :(
@@ -38,6 +39,17 @@ uniform float travel_distance [10];
 uniform vec3 light_look_at_position[10];
 uniform float light_wavelength[10];
 uniform float light_waist_radius[10];
+
+uniform vec3 optical_objects_positions[20];
+// Doest seem to work properly
+// uniform Complex2x2Matrix jones_matrices[20];
+
+uniform vec2 jones_matrices_a[20];
+uniform vec2 jones_matrices_b[20];
+uniform vec2 jones_matrices_c[20];
+uniform vec2 jones_matrices_d[20];
+
+uniform vec2 complex_coefficients[20];
 
 #define PI 3.141592
 
@@ -77,46 +89,6 @@ struct OpticalObject {
 
 #define NUMBER_OF_LIGHTS_IN_SCENE 2
 #define NUMBER_OF_OPTICAL_OBJECTS 3
-
-// A bit of a mess but I didnt want to cram too much
-// stuff into the OpticalObjectDefinition
-// TODO: Make it more generalizable
-#define LIGHTS_OBJECTS_POLARIZATION Polarization[](\
-  Polarization(vec2(10, 0), vec2(0, 0)),\
-  Polarization(vec2(10, 0), vec2(0, 0))\
-)
-
-#define OBJECTS_JONES_MATRICES ObjectJonesMatrix[] (\
-  ObjectJonesMatrix(\
-    vec2(1, 0),\
-    Complex2x2Matrix(\
-      vec2(cos(PI), 0), vec2(-sin(PI), 0),\
-      vec2(sin(PI), 0), vec2(cos(PI), 0)\
-    )\
-  ),\
-  \
-  ObjectJonesMatrix(\
-    vec2(1, 0),\
-    Complex2x2Matrix(\
-      vec2(0, 0), vec2(0, 0),\
-      vec2(0, 0), vec2(1, 0)\
-    )\
-  )\
-)
-
-#define LIGHT_OBJECTS OpticalObject[](\
- OpticalObject(LIGHT, 0, vec3(0.8, 0.8, 0.8), vec3(0.5, 0.5, 0.5)),\
- OpticalObject(LIGHT, 0, vec3(0.8, 0.8, 0.8), vec3(0.5, 0.5, 5.5))\
-)
-
- // OpticalObject(LIGHT, 0, vec3(1), vec3(25.5, 25.5, 20.5)),
-#define OPTICAL_OBJECTS_ARRAY OpticalObject[](\
- OpticalObject(LIGHT, 0, vec3(0.8, 0.8, 0.8), vec3(0.5, 0.5, 0.5)),\
- OpticalObject(LIGHT, 0, vec3(0.8, 0.8, 0.8), vec3(0.5, 0.5, 5.5)),\
- OpticalObject(PHASE_POLARIZER, 0, vec3(1), vec3(10.5, 0.5, 0.5)),\
- OpticalObject(PHASE_POLARIZER, 1, vec3(1), vec3(15.5, 0.5, 0.5))\
-)
-
 
 struct OpticalObjectStack {
   OpticalObject[10] objects_hit;
@@ -307,6 +279,12 @@ OpticalObject getOpticalObject(vec3 pos) {
     }
   }
 
+  for (int i = 0; i < number_of_optical_objects; i++) {
+    if (ivec3(optical_objects_positions[i]) == ivec3(pos)) {
+      return OpticalObject(PHASE_POLARIZER, i, vec3(0.8, 0.8, 0.8), optical_objects_positions[i]);
+    }
+  }
+
   return OpticalObject(NONE, 0, vec3(0), vec3(0));
 }
 
@@ -425,18 +403,37 @@ OpticalObject travel_to_point(inout RayObject ray, bool should_stop_at_goal, vec
     // -> A3 -> A2 -> A1 -> E0
 
     if (object_hit.type == PHASE_POLARIZER) {
-      ray.optical_objects_through_which_it_passed++;
+      if (computeDistance(ray.current_real_position, ray.current_real_position + ray.rayDir, object_hit.pos) < 0.5) {
+        ray.optical_objects_through_which_it_passed++;
 
-      if (!found_first_optical_object) {
-        aggregate_of_jones_matrices = OBJECTS_JONES_MATRICES[object_hit.value].jones_matrix;
-        found_first_optical_object = true;
+        if (!found_first_optical_object) {
 
-      } else {
-        aggregate_of_jones_matrices = 
-          cx_2x2_mat_mul(
-            cx_scalar_x_2x2_mat_mul(OBJECTS_JONES_MATRICES[object_hit.value].complexCoefficient, OBJECTS_JONES_MATRICES[object_hit.value].jones_matrix),
-            aggregate_of_jones_matrices
+          aggregate_of_jones_matrices.a = jones_matrices_a[object_hit.value];
+          aggregate_of_jones_matrices.b = jones_matrices_b[object_hit.value];
+          aggregate_of_jones_matrices.c = jones_matrices_c[object_hit.value];
+          aggregate_of_jones_matrices.d = jones_matrices_d[object_hit.value];
+          aggregate_of_jones_matrices = cx_scalar_x_2x2_mat_mul(
+            cx_mul(vec2(complex_coefficients[object_hit.value].x, 0), cx_exp(vec2(0, complex_coefficients[object_hit.value].y))), aggregate_of_jones_matrices
           );
+
+          found_first_optical_object = true;
+
+        } else {
+          Complex2x2Matrix new_temp_matrix;
+
+          new_temp_matrix.a = jones_matrices_a[object_hit.value];
+          new_temp_matrix.b = jones_matrices_b[object_hit.value];
+          new_temp_matrix.c = jones_matrices_c[object_hit.value];
+          new_temp_matrix.d = jones_matrices_d[object_hit.value];
+
+          aggregate_of_jones_matrices = 
+            cx_2x2_mat_mul(
+              cx_scalar_x_2x2_mat_mul(
+                cx_mul(vec2(complex_coefficients[object_hit.value].x, 0), cx_exp(vec2(0, complex_coefficients[object_hit.value].y))), new_temp_matrix
+              ),
+              aggregate_of_jones_matrices
+            );
+        }
       }
     }
 
@@ -502,8 +499,6 @@ void main() {
   vec4 color = vec4(1.);
   float anguloActualDePolarizacion = mod(t * 0.5, PI);
 
-  float width = 1000.0;
-
   vec4 fragCoord = gl_FragCoord;
   vec2 screenPos = (fragCoord.xy / viewportDimensions.xy) * 2.0 - 1.0;
   vec3 cameraDir = vec3(0.0, 0.0, 0.8);
@@ -563,11 +558,12 @@ void main() {
   // TODO handle NONE return type
   OpticalObject object_hit = travel_to_point(ray, false, vec3(0));
 
-  Polarization[5] E_lights;
+  Polarization[10] E_lights;
 
   // if the first thing we hit was a light, just draw it
   if (object_hit.type == LIGHT) {
-    color = vec4(object_hit.alternate_value, 1);
+    FragColor = vec4(1);
+    return;
 
   } else {
     for (int optical_object_index = 0; optical_object_index < number_of_lights; optical_object_index++) {
@@ -599,7 +595,7 @@ void main() {
 
         // we hit the light source we were looking for
         if (result.type == GOAL) {
-          color *= ray.color * vec4(1);
+          color *= ray.color;
 
           float radius;
           float distance_from_real_light_center = 0.1;
@@ -651,7 +647,7 @@ void main() {
 
         // we hit a different light source
         } else if (result.type == LIGHT) {
-          color = vec4(result.alternate_value, 1);
+          color = vec4(0.1, 0.1, 0.1, 1.);
 
         // the ray couldnt hit the light source
         } else {
@@ -677,19 +673,13 @@ void main() {
   float result = cx_abs(cx_add(Ex, Ey));
 
   if (number_of_lights == 0) {
-    color *= ray.color * 0.1;
+    color = ray.color * 0.05;
   } else {
-    result += 0.1 / float(number_of_lights);
-
-    if (result < 0.01) {
-      color *= 0.01;
-    } else {
-      color *= result;
-    }
+    color *= result + (0.05 / pow(float(number_of_lights), 2.));
   }
 
   if (ray.optical_objects_through_which_it_passed > 0) {
-    color *= pow(0.2, float(ray.optical_objects_through_which_it_passed));
+    color *= pow(0.1, float(ray.optical_objects_through_which_it_passed));
   }
 
   FragColor = vec4(color.xyz, 1.0);
