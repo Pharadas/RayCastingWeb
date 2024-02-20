@@ -924,8 +924,8 @@ function animate() {
 
     var coeff_num = parseFloat(eval(replaceForMath(value.coefficient)));
 
-    uniforms.light_polarizationsX.value[i] = px;
-    uniforms.light_polarizationsY.value[i] = py;
+    uniforms.light_polarizationsX.value[i] = new THREE.Vector2(px.x * coeff_num, px.y);
+    uniforms.light_polarizationsY.value[i] = new THREE.Vector2(py.x * coeff_num, py.y);
 
     uniforms.light_should_follow.value[i] = value.light_should_follow;
     uniforms.light_look_at_position.value[i] = value.look_at_position;
